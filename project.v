@@ -17,6 +17,9 @@ module tt_um_vga_example(
   input        clk,      // clock
   input        rst_n     // reset_n - low to reset+
 );
+  // Game paramaters
+  localparam SNAKE_GRID_WIDTH = 18;
+  localparam SNAKE_GRID_HEIGHT = 18;
 
   // VGA signals
   wire hsync;
@@ -71,8 +74,11 @@ module tt_um_vga_example(
       .is_present(inp_present)
   );
 
-  wire [9:0] snake_x, snake_y;
-  snake_logic game_logic (
+  wire [4:0] snake_x, snake_y;
+  snake_logic #(
+    .ROWS(SNAKE_GRID_WIDTH),
+    .COLUMNS(SNAKE_GRID_HEIGHT)
+  ) game_logic (
     .up(inp_up), .down(inp_down), .left(inp_left), .right(inp_right),
     .clk(clk),
     .vsync(vsync),
@@ -80,7 +86,10 @@ module tt_um_vga_example(
     .snake_x(snake_x), .snake_y(snake_y)
   );
 
-    vga_display vga_out (
+    vga_display #(
+    .ROWS(SNAKE_GRID_WIDTH),
+    .COLUMNS(SNAKE_GRID_HEIGHT)
+  ) vga_out (
     .pix_x(pix_x), .pix_y(pix_y),
     .snake_x(snake_x), .snake_y(snake_y),
     .video_active(video_active),
@@ -89,20 +98,30 @@ module tt_um_vga_example(
   );
 endmodule
 
-module vga_display(
+module vga_display #(
+  parameter ROWS,
+	parameter COLUMNS,
+  parameter SCALE_FACTOR = 10'd20
+) (
   input [9:0] pix_x, pix_y,
-  input [9:0] snake_x, snake_y,
+  input [4:0] snake_x, snake_y,
   input video_active,
   input reset,
   output reg [1:0] r, g, b
 );
     always @(*) begin
-      r = 0;
-      g = 0;
-      b = 0;
+      if (pix_x < SCALE_FACTOR * ROWS) begin
+        r = 1;
+        g = 1;
+        b = 1;
+      end else begin
+        r = 0;
+        g = 0;
+        b = 0;
+      end
 
       if (video_active & ~reset) begin
-        g = (pix_x == snake_x && pix_y == snake_y) ? 3 : 0;
+        g = (pix_x / SCALE_FACTOR == snake_x && pix_y / SCALE_FACTOR == snake_y) ? 3 : 0;
       end
   end
 endmodule
@@ -129,12 +148,15 @@ module game_tick(
   end
 endmodule
 
-module snake_logic(
+module snake_logic #(
+  parameter ROWS,
+	parameter COLUMNS
+) (
   input up, down, left, right,
   input clk,
   input vsync,
   input reset,
-  output reg [9:0] snake_x, snake_y
+  output reg [4:0] snake_x, snake_y
 );
   wire update_tick;
   game_tick tick (
@@ -150,16 +172,16 @@ module snake_logic(
       snake_y <= 10;
     end else if (update_tick) begin
       if (up)
-        snake_y <= snake_y - 10;
+        snake_y <= snake_y - 1;
       
       if (down)
-        snake_y <= snake_y + 10;
+        snake_y <= snake_y + 1;
 
       if (left)
-        snake_x <= snake_x - 10;
+        snake_x <= snake_x - 1;
       
       if (right)
-        snake_x <= snake_x + 10;
+        snake_x <= snake_x + 1;
     end
   end
 endmodule
