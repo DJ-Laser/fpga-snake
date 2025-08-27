@@ -74,7 +74,8 @@ module tt_um_vga_example(
       .is_present(inp_present)
   );
 
-  wire [4:0] snake_x, snake_y;
+  localparam SNAKE_BITS = SNAKE_GRID_WIDTH * SNAKE_GRID_HEIGHT * 4;
+  wire [SNAKE_BITS - 1:0] snake_board;
   snake_logic #(
     .ROWS(SNAKE_GRID_WIDTH),
     .COLUMNS(SNAKE_GRID_HEIGHT)
@@ -83,7 +84,7 @@ module tt_um_vga_example(
     .clk(clk),
     .vsync(vsync),
     .reset(~rst_n),
-    .snake_x(snake_x), .snake_y(snake_y)
+    .board_state(snake_board)
   );
 
     vga_display #(
@@ -91,38 +92,72 @@ module tt_um_vga_example(
     .COLUMNS(SNAKE_GRID_HEIGHT)
   ) vga_out (
     .pix_x(pix_x), .pix_y(pix_y),
-    .snake_x(snake_x), .snake_y(snake_y),
+    .board_state(snake_board),
     .video_active(video_active),
     .reset(~rst_n),
     .r(vga_r), .g(vga_g), .b(vga_b)
   );
 endmodule
 
+// Gets a new position from a distance and direction
+// 2'b00: up
+// 2'b01: down
+// 2'b10: left
+// 2'b11: right
+module snake_movement_calculator (
+  input [4:0] head_x, head_y,
+  input [1:0] direction,
+  input [4:0] distance,
+  output reg [4:0] new_x, new_y
+);
+  always @(*) begin
+    new_x = head_x;
+    new_y = head_y;
+
+    case (direction)
+      2'b00: new_y = head_y - distance;
+      2'b01: new_y = head_y + distance;
+      2'b10: new_x = head_x - distance;
+      2'b11: new_x = head_x + distance;
+    endcase
+  end
+endmodule
+
 module vga_display #(
   parameter ROWS,
 	parameter COLUMNS,
-  parameter SCALE_FACTOR = 10'd20
+  parameter SCALE_FACTOR = 5'd25
 ) (
   input [9:0] pix_x, pix_y,
-  input [4:0] snake_x, snake_y,
+  input [GRID_BITS - 1:0] board_state,
   input video_active,
   input reset,
   output reg [1:0] r, g, b
 );
-    always @(*) begin
-      if (pix_x < SCALE_FACTOR * ROWS) begin
+  localparam GRID_COL = 4;
+  localparam GRID_ROW = COLUMNS * GRID_COL;
+  localparam GRID_BITS = GRID_ROW * ROWS;
+
+  wire [4:0] cell_x = pix_x[4:0] / SCALE_FACTOR;
+  wire [4:0] cell_y = pix_y[4:0] / SCALE_FACTOR;
+
+  wire [3:0] cell_state = board_state[cell_x * GRID_COL + cell_y * GRID_ROW +: 4];
+
+  always @(*) begin
+    r = 0;
+    g = 0;
+    b = 0;
+
+    if (video_active & ~reset) begin
+      if (pix_x < SCALE_FACTOR * COLUMNS && pix_y < SCALE_FACTOR * ROWS) begin
         r = 1;
         g = 1;
         b = 1;
-      end else begin
-        r = 0;
-        g = 0;
-        b = 0;
       end
 
-      if (video_active & ~reset) begin
-        g = (pix_x / SCALE_FACTOR == snake_x && pix_y / SCALE_FACTOR == snake_y) ? 3 : 0;
-      end
+      if (cell_state[0])
+        r = 3;
+    end
   end
 endmodule
 
@@ -156,9 +191,21 @@ module snake_logic #(
   input clk,
   input vsync,
   input reset,
-  output reg [4:0] snake_x, snake_y
+  output reg [GRID_BITS - 1:0] board_state
 );
+  localparam GRID_COL = 4;
+  localparam GRID_ROW = COLUMNS * GRID_COL;
+  localparam GRID_BITS = GRID_ROW * ROWS;
+
   wire update_tick;
+  reg [3:0] movement_counter;
+
+  reg [4:0] tail_x, tail_y;
+  reg [4:0] head_x, head_y;
+
+  reg [1:0] movement_direction;
+  wire [4:0] new_head_x, new_head_y;
+
   game_tick tick (
     .clk(clk),
     .vsync(vsync),
@@ -166,22 +213,41 @@ module snake_logic #(
     .tick_pulse(update_tick)
   );
 
-  always @(posedge clk) begin
-    if (reset) begin
-      snake_x <= 10;
-      snake_y <= 10;
-    end else if (update_tick) begin
-      if (up)
-        snake_y <= snake_y - 1;
-      
-      if (down)
-        snake_y <= snake_y + 1;
+  snake_movement_calculator movement (
+    .head_x(head_x), .head_y(head_y), 
+    .direction(movement_direction),
+    .distance(1),
+    .new_x(new_head_x), .new_y(new_head_y)
+  );
 
-      if (left)
-        snake_x <= snake_x - 1;
-      
-      if (right)
-        snake_x <= snake_x + 1;
+  always @(posedge clk) begin
+    if (up)
+      movement_direction <= 2'b00;
+    
+    if (down)
+      movement_direction <= 2'b01;
+
+    if (left)
+      movement_direction <= 2'b10;
+    
+    if (right)
+      movement_direction <= 2'b11;
+
+    if (reset) begin
+      board_state <= {GRID_BITS{1'0}};
+      head_x <= COLUMNS / 2;
+      head_y <= ROWS / 2;
+      tail_x <= COLUMNS / 2;
+      tail_y <= ROWS / 2;
+      movement_direction <= 2'b11;
+    end else if (update_tick) begin
+      if (movement_counter < 4)
+        movement_counter <= movement_counter + 1;
+      else begin
+        movement_counter <= 0;
+
+        
+      end
     end
   end
 endmodule
